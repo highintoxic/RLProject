@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Model checkpoints & outputs
+indian-legal-1.5b/
+indian-legal-1.5b-lora/
+indian-legal-1.5b-grpo/
+indian-legal-1.5b-final/
+outputs/
+checkpoints/
+
+# Data artifacts (generated at runtime)
+cot_data.jsonl
+legal_eval_report.csv
+
+# Environment
+.env
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Kaggle
+/kaggle/
