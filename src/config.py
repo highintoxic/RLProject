@@ -97,8 +97,8 @@ DEEPSEEK_CHAT_MODEL  = "deepseek-chat"
 # Data
 # ─────────────────────────────────────────────
 
-ILDC_DATASET       = "rceborg/ildc"
-NYAYA_DATASET      = "NyayaAnumana/NyayaAnumana"
+ILDC_DATASET       = "labofsahil/Indian-Supreme-Court-Judgments"
+NYAYA_DATASET      = "anuragiiser/ILDC_expert"
 COT_DATA_PATH      = "cot_data.jsonl"
 COT_NUM_SAMPLES    = 500
 TEST_SPLIT_RATIO   = 0.05
