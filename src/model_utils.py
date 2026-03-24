@@ -7,7 +7,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 from peft import LoraConfig, get_peft_model, PeftModel
 
 from src.config import (
-    MODEL_ID, BNB_CONFIG,
+    MODEL_ID, BNB_CONFIG, _COMPUTE_DTYPE,
     LORA_R, LORA_ALPHA, LORA_DROPOUT, LORA_TARGET_MODULES,
     INFERENCE_SYSTEM_PROMPT,
 )
@@ -25,6 +25,7 @@ def load_base_model(model_id: str = MODEL_ID):
     model = AutoModelForCausalLM.from_pretrained(
         model_id,
         quantization_config=bnb_config,
+        torch_dtype=_COMPUTE_DTYPE,   # load in fp16 to halve CPU RAM
         device_map="auto",
         low_cpu_mem_usage=True,
         trust_remote_code=True,
@@ -68,6 +69,7 @@ def load_finetuned_model(lora_path: str, model_id: str = MODEL_ID):
     base_model = AutoModelForCausalLM.from_pretrained(
         model_id,
         quantization_config=bnb_config,
+        torch_dtype=_COMPUTE_DTYPE,   # load in fp16 to halve CPU RAM
         device_map="auto",
         low_cpu_mem_usage=True,
         trust_remote_code=True,
