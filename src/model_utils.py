@@ -21,11 +21,13 @@ def load_base_model(model_id: str = MODEL_ID):
     """
     bnb_config = BitsAndBytesConfig(**BNB_CONFIG)
     
-    tokenizer = AutoTokenizer.from_pretrained(model_id)
+    tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
     model = AutoModelForCausalLM.from_pretrained(
         model_id,
         quantization_config=bnb_config,
         device_map="auto",
+        low_cpu_mem_usage=True,
+        trust_remote_code=True,
     )
     
     mem_gb = torch.cuda.memory_allocated() / 1e9
@@ -67,8 +69,10 @@ def load_finetuned_model(lora_path: str, model_id: str = MODEL_ID):
         model_id,
         quantization_config=bnb_config,
         device_map="auto",
+        low_cpu_mem_usage=True,
+        trust_remote_code=True,
     )
-    tokenizer = AutoTokenizer.from_pretrained(model_id)
+    tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
     
     finetuned_model = PeftModel.from_pretrained(base_model, lora_path)
     finetuned_model.eval()

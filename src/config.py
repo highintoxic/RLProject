@@ -33,10 +33,17 @@ DEEPSEEK_API_KEY  = _get_secret("DEEPSEEK_API_KEY")
 
 MODEL_ID = "Qwen/Qwen2.5-1.5B-Instruct"
 
+# Auto-detect: T4/P100 don't support bfloat16, use float16 instead
+_COMPUTE_DTYPE = (
+    torch.bfloat16
+    if torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 8
+    else torch.float16
+)
+
 BNB_CONFIG = {
     "load_in_4bit":              True,
     "bnb_4bit_quant_type":       "nf4",
-    "bnb_4bit_compute_dtype":    torch.bfloat16,
+    "bnb_4bit_compute_dtype":    _COMPUTE_DTYPE,
     "bnb_4bit_use_double_quant": True,
 }
 
