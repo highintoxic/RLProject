@@ -24,8 +24,8 @@ def _get_secret(name: str) -> str:
         return val
 
 
-HF_TOKEN          = _get_secret("HF_TOKEN")
-DEEPSEEK_API_KEY  = _get_secret("DEEPSEEK_API_KEY")
+HF_TOKEN             = _get_secret("HF_TOKEN")
+OPENROUTER_API_KEY   = _get_secret("OPENROUTER_API_KEY")
 
 # ─────────────────────────────────────────────
 # Model
@@ -86,12 +86,12 @@ GRPO_MAX_NEW_TOKENS      = 512
 GRPO_EPOCHS              = 1
 
 # ─────────────────────────────────────────────
-# DeepSeek API
+# API (OpenRouter)
 # ─────────────────────────────────────────────
 
-DEEPSEEK_BASE_URL    = "https://api.deepseek.com"
-DEEPSEEK_R1_MODEL    = "deepseek-reasoner"
-DEEPSEEK_CHAT_MODEL  = "deepseek-chat"
+OPENROUTER_BASE_URL  = "https://openrouter.ai/api/v1"
+REASONER_MODEL       = "deepseek/deepseek-r1"              # CoT teacher
+CHAT_MODEL           = "deepseek/deepseek-chat-v3-0324"    # judge / direct answers
 
 # ─────────────────────────────────────────────
 # Data

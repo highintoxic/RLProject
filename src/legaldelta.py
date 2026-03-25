@@ -16,8 +16,8 @@ import torch.nn.functional as F
 from openai import OpenAI
 
 from src.config import (
-    DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL,
-    DEEPSEEK_R1_MODEL, DEEPSEEK_CHAT_MODEL,
+    OPENROUTER_API_KEY, OPENROUTER_BASE_URL,
+    REASONER_MODEL, CHAT_MODEL,
 )
 
 
@@ -49,42 +49,61 @@ Case Facts: {facts}"""
 # Dual-Mode Data Generation
 # ═══════════════════════════════════════════════
 
-def create_deepseek_client(api_key: str = None) -> OpenAI:
-    """Create OpenAI-compatible client for DeepSeek API."""
-    key = api_key or DEEPSEEK_API_KEY
+def create_openrouter_client(api_key: str = None) -> OpenAI:
+    """Create OpenAI-compatible client for OpenRouter."""
+    key = api_key or OPENROUTER_API_KEY
     if not key:
-        raise ValueError("DEEPSEEK_API_KEY not found.")
-    return OpenAI(api_key=key, base_url=DEEPSEEK_BASE_URL)
+        raise ValueError("OPENROUTER_API_KEY not found.")
+    return OpenAI(api_key=key, base_url=OPENROUTER_BASE_URL)
 
 
-def generate_dual_mode_pair(client: OpenAI, facts: str) -> dict:
+def generate_dual_mode_pair(
+    client: OpenAI,
+    facts: str,
+    reasoner_model: str = None,
+    chat_model: str = None,
+) -> dict:
     """Generate a (direct_answer, CoT_answer) pair for one case.
 
     This is LegalDelta Stage 1: distill from LRM (Large Reasoning Model).
 
+    Args:
+        client: OpenRouter client.
+        facts: Case facts text.
+        reasoner_model: Model for CoT generation (default: config REASONER_MODEL).
+        chat_model: Model for direct answers (default: config CHAT_MODEL).
+
     Returns:
         dict with keys: facts, direct_answer, cot_reasoning, cot_answer
     """
-    # Mode 1: Direct answer (fast, cheap — deepseek-chat)
+    r_model = reasoner_model or REASONER_MODEL
+    c_model = chat_model or CHAT_MODEL
+
+    # Mode 1: Direct answer (fast, cheap)
     direct_resp = client.chat.completions.create(
-        model=DEEPSEEK_CHAT_MODEL,
+        model=c_model,
         messages=[{"role": "user", "content": DIRECT_PROMPT.format(facts=facts)}],
         max_tokens=256,
         temperature=0.1,
     )
 
-    # Mode 2: CoT answer (deep reasoning — deepseek-reasoner / R1)
+    # Mode 2: CoT answer (deep reasoning)
     cot_resp = client.chat.completions.create(
-        model=DEEPSEEK_R1_MODEL,
+        model=r_model,
         messages=[{"role": "user", "content": COT_PROMPT.format(facts=facts)}],
         max_tokens=1024,
     )
 
+    # Handle reasoning_content (R1-specific, may not exist on all models)
+    cot_msg = cot_resp.choices[0].message
+    cot_reasoning = getattr(cot_msg, "reasoning_content", None) or ""
+    cot_answer = cot_msg.content or ""
+
     return {
         "facts": facts,
         "direct_answer": direct_resp.choices[0].message.content,
-        "cot_reasoning": cot_resp.choices[0].message.reasoning_content,
-        "cot_answer": cot_resp.choices[0].message.content,
+        "cot_reasoning": cot_reasoning,
+        "cot_answer": cot_answer,
     }
 
 
@@ -94,28 +113,36 @@ def generate_dual_mode_batch(
     n_samples: int = 300,
     save_path: str = "dual_mode_data.jsonl",
     save_every: int = 50,
+    reasoner_model: str = None,
+    chat_model: str = None,
 ) -> list:
     """Generate dual-mode pairs for N cases, saving incrementally.
 
     Args:
         ildc_dataset: ILDC HuggingFace dataset.
-        client: DeepSeek OpenAI client.
+        client: OpenRouter client.
         n_samples: Number of cases.
         save_path: JSONL output path.
         save_every: Checkpoint interval.
+        reasoner_model: Override reasoner model.
+        chat_model: Override chat model.
 
     Returns:
         list of dual-mode dicts.
     """
     if client is None:
-        client = create_deepseek_client()
+        client = create_openrouter_client()
 
     data = []
 
     for i, case in enumerate(ildc_dataset.select(range(n_samples))):
         facts = case.get("facts", case.get("text", ""))[:1000]
         try:
-            pair = generate_dual_mode_pair(client, facts)
+            pair = generate_dual_mode_pair(
+                client, facts,
+                reasoner_model=reasoner_model,
+                chat_model=chat_model,
+            )
             pair["reference"] = str(case.get("label", ""))
             data.append(pair)
 
@@ -166,23 +193,11 @@ def compute_information_gain(
 
     High IG → CoT meaningfully changed the answer distribution → reward.
     Low IG  → CoT added nothing → penalise.
-
-    Args:
-        model: The language model.
-        tokenizer: Tokenizer.
-        facts: Case facts.
-        direct_answer: The answer text to measure probability of.
-        cot_response: The CoT reasoning text.
-        max_length: Max token length for inputs.
-
-    Returns:
-        float: Information gain score (clamped to [0, 2]).
     """
     model.eval()
     device = next(model.parameters()).device
 
     def get_answer_log_probs(prompt: str, answer: str) -> torch.Tensor:
-        """Get per-token log probs of `answer` conditioned on `prompt`."""
         full_text = prompt + answer
         inputs = tokenizer(
             full_text, return_tensors="pt",
@@ -195,13 +210,11 @@ def compute_information_gain(
         )
         prompt_len = prompt_ids["input_ids"].shape[1]
 
-        # Need at least 1 answer token
         if inputs["input_ids"].shape[1] <= prompt_len:
             return torch.tensor([0.0], device=device)
 
         with torch.no_grad():
             outputs = model(**inputs)
-            # logits for positions prompt_len-1 to end-1 predict answer tokens
             logits = outputs.logits[0, prompt_len - 1:-1]
             answer_ids = inputs["input_ids"][0, prompt_len:]
             log_probs = F.log_softmax(logits, dim=-1)
@@ -212,18 +225,15 @@ def compute_information_gain(
         return token_log_probs
 
     try:
-        # P(answer | facts only)
         direct_prompt = f"Case Facts: {facts[:400]}\n\nJudgment: "
         log_p_direct = get_answer_log_probs(direct_prompt, direct_answer[:200])
 
-        # P(answer | facts + CoT)
         cot_prompt = (
             f"Case Facts: {facts[:400]}\n\n"
             f"<think>{cot_response[:300]}</think>\n\nJudgment: "
         )
         log_p_cot = get_answer_log_probs(cot_prompt, direct_answer[:200])
 
-        # Align lengths (take minimum)
         min_len = min(len(log_p_direct), len(log_p_cot))
         if min_len == 0:
             return 0.0
@@ -231,7 +241,6 @@ def compute_information_gain(
         log_p_direct = log_p_direct[:min_len]
         log_p_cot = log_p_cot[:min_len]
 
-        # KL(P_cot || P_direct)
         kl_div = (
             log_p_cot.exp() * (log_p_cot - log_p_direct)
         ).mean().item()
@@ -262,14 +271,9 @@ def compute_legaldelta_reward(
     1. Information Gain (core novelty)
     2. Structural coherence (legal syllogism structure)
     3. Indian legal domain specificity (IPC/BNS citations)
-
-    Returns:
-        dict with total, ig, structure, domain scores.
     """
-    # Component 1: Information Gain (already computed)
     r_ig = ig_score
 
-    # Component 2: Structural coherence
     has_think = 1.0 if ("<think>" in cot_full_response and
                         "</think>" in cot_full_response) else 0.0
     legal_keywords = [
@@ -283,7 +287,6 @@ def compute_legaldelta_reward(
     )
     r_structure = min(has_think + keyword_score, 1.0)
 
-    # Component 3: Indian legal domain specificity
     ipc_citations = re.findall(
         r'(?:Section|Sec\.?)\s*\d+[A-Z]?\s*(?:IPC|BNS|CrPC|BNSS|IEA)',
         cot_full_response,
@@ -294,7 +297,6 @@ def compute_legaldelta_reward(
     )
     r_domain = min(len(ipc_citations) * 0.3 + len(sc_refs) * 0.2, 1.0)
 
-    # Weighted total
     total = w_ig * r_ig + w_structure * r_structure + w_domain * r_domain
 
     return {
@@ -303,50 +305,3 @@ def compute_legaldelta_reward(
         "structure": r_structure,
         "domain": r_domain,
     }
-
-
-def legaldelta_reward_for_grpo(
-    model, tokenizer, dual_mode_data: list
-):
-    """Create a GRPO-compatible reward function using LegalDelta rewards.
-
-    Returns a callable that takes (completions, **kwargs) -> list[float].
-    """
-    # Pre-index by facts for lookup
-    data_by_facts = {}
-    for row in dual_mode_data:
-        key = row["facts"][:100]
-        data_by_facts[key] = row
-
-    def reward_fn(completions, prompts=None, **kwargs):
-        rewards = []
-        for completion in completions:
-            # Try to compute IG if we have matching data
-            ig = 0.0
-            direct = ""
-
-            # Match completion to original data
-            for key, row in data_by_facts.items():
-                if key[:50] in (prompts[0] if prompts else ""):
-                    direct = row.get("direct_answer", "")
-                    try:
-                        ig = compute_information_gain(
-                            model, tokenizer,
-                            row["facts"], direct, completion,
-                        )
-                    except Exception:
-                        ig = 0.0
-                    break
-
-            result = compute_legaldelta_reward(
-                facts="",
-                direct_answer=direct,
-                cot_full_response=completion,
-                reference="",
-                ig_score=ig,
-            )
-            rewards.append(result["total"])
-
-        return rewards
-
-    return reward_fn
