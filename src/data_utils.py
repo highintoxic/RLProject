@@ -14,16 +14,29 @@ from src.config import (
 def _get_text(example: dict) -> str:
     """Extract the main text field from a dataset example.
     
-    Handles different column names across datasets:
-    - 'facts', 'text', 'case_text', 'document', 'Text'
+    Handles different column names and types across datasets:
+    - String cols: 'facts', 'text', 'case_text', 'document', 'Text'
+    - List cols:   'judgement_sent', 'headnote_sent' (joined with space)
     """
+    # Try string columns first
     for key in ("facts", "text", "case_text", "document", "Text"):
         if key in example and example[key]:
             return str(example[key])
-    # Fall back to first string column
+    
+    # Try list columns (e.g. labofsahil/Indian-Supreme-Court-Judgments)
+    for key in ("judgement_sent", "headnote_sent"):
+        if key in example and example[key]:
+            val = example[key]
+            if isinstance(val, list):
+                return " ".join(str(s) for s in val)
+            return str(val)
+    
+    # Fall back to first long string or list column
     for key, val in example.items():
         if isinstance(val, str) and len(val) > 50:
             return val
+        if isinstance(val, list) and len(val) > 0 and isinstance(val[0], str):
+            return " ".join(val)
     return ""
 
 

@@ -19,6 +19,7 @@ from src.config import (
     OPENROUTER_API_KEY, OPENROUTER_BASE_URL,
     REASONER_MODEL, CHAT_MODEL,
 )
+from src.data_utils import _get_text
 
 
 # ═══════════════════════════════════════════════
@@ -157,7 +158,7 @@ def generate_dual_mode_batch(
     data = []
 
     for i, case in enumerate(ildc_dataset.select(range(n_samples))):
-        facts = case.get("facts", case.get("text", ""))[:1000]
+        facts = _get_text(case)[:1000]
         try:
             pair = generate_dual_mode_pair(
                 client, facts,
