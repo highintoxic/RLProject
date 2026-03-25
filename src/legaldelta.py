@@ -87,24 +87,38 @@ def generate_dual_mode_pair(
         temperature=0.1,
     )
 
-    # Mode 2: CoT answer (deep reasoning)
+    # Mode 2: CoT answer (deep reasoning via OpenRouter)
     cot_resp = client.chat.completions.create(
         model=r_model,
         messages=[{"role": "user", "content": COT_PROMPT.format(facts=facts)}],
         max_tokens=1024,
+        extra_body={"reasoning": {"enabled": True}},
     )
 
-    # Safely extract content — OpenRouter may return None for .content
+    # Safely extract content — OpenRouter returns reasoning in reasoning_details
     direct_msg = direct_resp.choices[0].message
-    direct_answer = direct_msg.content or getattr(direct_msg, "reasoning_content", None) or ""
+    direct_answer = direct_msg.content or ""
 
     cot_msg = cot_resp.choices[0].message
-    cot_reasoning = getattr(cot_msg, "reasoning_content", None) or ""
+    # reasoning_details is a list of dicts, extract text from each
+    raw_details = getattr(cot_msg, "reasoning_details", None) or []
+    if isinstance(raw_details, list):
+        cot_reasoning = "\n".join(
+            d.get("content", "") if isinstance(d, dict) else str(d)
+            for d in raw_details
+        )
+    else:
+        cot_reasoning = str(raw_details)
     cot_answer = cot_msg.content or ""
 
-    # If both are empty, something is wrong — log it
+    # Fallback: if content is empty, try reasoning_content (DeepSeek native)
+    if not direct_answer:
+        direct_answer = getattr(direct_msg, "reasoning_content", None) or ""
+    if not cot_answer and cot_reasoning:
+        cot_answer = cot_reasoning
+
     if not direct_answer and not cot_answer:
-        print(f"  ⚠️ Both responses empty! Direct msg: {direct_msg}, CoT msg: {cot_msg}")
+        print(f"  ⚠️ Both responses empty! Direct: {direct_msg}, CoT: {cot_msg}")
 
     return {
         "facts": facts,

@@ -46,15 +46,25 @@ def get_cot_from_teacher(
             "content": COT_PROMPT.format(facts=facts),
         }],
         max_tokens=2048,
+        extra_body={"reasoning": {"enabled": True}},
     )
 
-    # OpenRouter wraps R1's reasoning in `reasoning_content` if available,
-    # otherwise it may be in the main `content`. Handle None safely.
+    # OpenRouter returns reasoning in reasoning_details (list of dicts)
     msg = resp.choices[0].message
-    reasoning = getattr(msg, "reasoning_content", None) or ""
-    answer = msg.content or ""
+    raw_details = getattr(msg, "reasoning_details", None) or []
+    if isinstance(raw_details, list):
+        reasoning = "\n".join(
+            d.get("content", "") if isinstance(d, dict) else str(d)
+            for d in raw_details
+        )
+    else:
+        reasoning = str(raw_details)
 
-    # If R1 put everything in reasoning_content and nothing in content
+    # Fallback: try reasoning_content (DeepSeek native format)
+    if not reasoning:
+        reasoning = getattr(msg, "reasoning_content", None) or ""
+
+    answer = msg.content or ""
     if not answer and reasoning:
         answer = reasoning
 
