@@ -94,14 +94,21 @@ def generate_dual_mode_pair(
         max_tokens=1024,
     )
 
-    # Handle reasoning_content (R1-specific, may not exist on all models)
+    # Safely extract content — OpenRouter may return None for .content
+    direct_msg = direct_resp.choices[0].message
+    direct_answer = direct_msg.content or getattr(direct_msg, "reasoning_content", None) or ""
+
     cot_msg = cot_resp.choices[0].message
     cot_reasoning = getattr(cot_msg, "reasoning_content", None) or ""
     cot_answer = cot_msg.content or ""
 
+    # If both are empty, something is wrong — log it
+    if not direct_answer and not cot_answer:
+        print(f"  ⚠️ Both responses empty! Direct msg: {direct_msg}, CoT msg: {cot_msg}")
+
     return {
         "facts": facts,
-        "direct_answer": direct_resp.choices[0].message.content,
+        "direct_answer": direct_answer,
         "cot_reasoning": cot_reasoning,
         "cot_answer": cot_answer,
     }

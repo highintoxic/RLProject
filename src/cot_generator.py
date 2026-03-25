@@ -49,10 +49,14 @@ def get_cot_from_teacher(
     )
 
     # OpenRouter wraps R1's reasoning in `reasoning_content` if available,
-    # otherwise it may be in the main `content`.
+    # otherwise it may be in the main `content`. Handle None safely.
     msg = resp.choices[0].message
     reasoning = getattr(msg, "reasoning_content", None) or ""
     answer = msg.content or ""
+
+    # If R1 put everything in reasoning_content and nothing in content
+    if not answer and reasoning:
+        answer = reasoning
 
     return {
         "facts": facts,
